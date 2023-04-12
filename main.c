@@ -1,22 +1,6 @@
-#include<unistd.h>
-#include<stdio.h>
-#include<syscall.h>
-#include<stdlib.h>
-#include<sys/types.h>
-#include<sys/ipc.h>
-#include<sys/sem.h>
-#include<sys/shm.h>
-#include<signal.h>
+#include "hw1.h"
 
 int mode = 1;
-
-int io(void){
-
-}
-
-int merge(void){
-
-}
 
 int main(void){
 
@@ -29,8 +13,8 @@ int main(void){
 		exit(1);
 	}
 
-	pid_t pid;
-	pid = fork();
+	pid_t pid1;
+	pid1 = fork();
 	if (pid1 < 0){
 		printf("I/O process fork failed");
 		return 1;
@@ -42,7 +26,7 @@ int main(void){
 		pid_t pid2;
 		pid2 = fork();
 		if (pid2 < 0){
-			print("merge process fork failed");
+			printf("merge process fork failed");
 			return 1;
 		}
 		else if (pid2 == 0){
@@ -50,8 +34,9 @@ int main(void){
 		}
 		else {
 			while(1){
+				/*
 				if (mode == 1){
-					handle_put();	
+						
 				}
 				else if (mode == 2){
 					handle_get();
@@ -59,6 +44,8 @@ int main(void){
 				else if (mode == 3){
 					handle_merge();
 				}
+				*/
+			}
 		}
 	}
 	
