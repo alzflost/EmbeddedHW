@@ -25,15 +25,14 @@ unsigned char switch_num[9] = {'1','2','3','4','5','6','7','8','9'};
 
 // 0 for key, 1 for value
 int put_mode = 0;
-// 0 for key, 
+// 0 for key
 int get_mode = 0;
 // 0 for english, 1 for number
-int switch_eng_num = 0;
+int switch_eng_num = 1;
 
 int fnd_cur = 0;
 unsigned char lcd_string[32];
-
-int led_cur = 0;
+int led_status = 0;
 
 void user_signal1(int sig) 
 {
@@ -155,10 +154,14 @@ unsigned char in_switch(void){
 void in_reset(){
 	unsigned char dip_buf = 0;
 	int retval = read(dev_fds[0], &dip_buf, 1);
+	if (dip_buf){
+		
+	}
 	if (retval < 0){
 		printf("reset button err");
 		return;
 	}
+	
 }
 
 void in_event(){
@@ -185,9 +188,22 @@ void out_lcd(unsigned char ch){
 }
 
 void out_led(){
-	if (!(time_cnt&1)){
-		return;	
+	unsigned long *fpga_addr = 0;
+	unsigned long *led_addr = 0;
+	if ((time_cnt&3)){
+		
 	}
+	fpga_addr = (unsigned long *)mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, fd, FPGA_BASE_ADDRESS);
+	if (fpga_addr == MAP_FAILED){
+		printf("mmap error!");
+		close(dev_fds[2]);
+		exit(1);
+	}
+
+	led_addr=(unsigned char*)((void *)fpga_addr+LED_ADDR);
+	*led_addr = led_status;
+
+	munmap(led_addr, 4096);
 	return;
 }
 

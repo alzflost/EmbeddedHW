@@ -15,7 +15,9 @@
 #define DIP_SWITCH "/dev/fpga_dip_switch"
 #define FND_MAX_DIGIT 4
 #define FND_DEVICE "/dev/fpga_fnd"
-#define LED_DEVICE "/dev/fpga_led"
+#define LED_DEVICE "/dev/mem"
+#define FPGA_BASE_ADDRESS 0x08000000
+#define LED_ADDR 0x16
 #define PUSH_SWITCH "/dev/fpga_push_switch"
 #define MAX_BUTTON 9
 #define MOTOR_DEVICE "/dev/fpga_step_motor"
