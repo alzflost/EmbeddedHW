@@ -1,9 +1,9 @@
 #include "hw1.h"
 
-int mode = 1;
+extern int mode;
 
 int main(void){
-
+	
 	key_t key;
 	int shmid;
 	key = ftok("myfile", 1);

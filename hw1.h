@@ -11,6 +11,8 @@
 #include<sys/stat.h>
 #include<sys/ioctl.h>
 #include<string.h>
+#include<linux/input.h>
+#include<sys/mman.h>
 
 #define DIP_SWITCH "/dev/fpga_dip_switch"
 #define FND_MAX_DIGIT 4
@@ -28,6 +30,7 @@
 #define KEY_RELEASE 0
 #define KEY_PRESS 1
 #define KEY_EVENT "/dev/input/event0"
+#define EVENT_BUF_SIZE 64
 
 #define NUM_DEVICES 7
 #define NUM_DEV_DIP_SWITCH 0
@@ -39,6 +42,9 @@
 #define NUM_KEY_EVENT 6
 
 int mode;
+int put_request;
+int get_request;
+int merge_request;
 
 void io();
 void merge();
