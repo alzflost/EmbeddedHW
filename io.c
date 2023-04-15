@@ -1,10 +1,6 @@
 #include "hw1.h"
 
-unsigned char quit = 0;
-extern int mode;
-extern int put_request;
-extern int get_request;
-extern int merge_request;
+// unsigned char quit = 0;
 int time_cnt = 0;
 
 int dev_fds[NUM_DEVICES];
@@ -52,11 +48,12 @@ int motor_time_cnt;
 struct input_event ev[EVENT_BUF_SIZE];
 int size = sizeof(struct input_event);
 
-
+/*
 void user_signal1(int sig) 
 {
 	quit = 1;
 }
+*/
 
 int open_devices(void){
 	// open required device drivers
@@ -110,21 +107,23 @@ int open_devices(void){
                 close(dev_fds[6]);
                 return -1;
         }
-
+	return 0;
 }
 
 // close devices
 int close_devices(void){
 	int i = 0;
 	for(i=0; i<NUM_DEVICES; i++){
-		close(dev_fds[i]);
+		if (close(dev_fds[i]) != 0){
+			return -1;
+		}
 	}
+	return 0;
 }
 
 void io_put(void){
 	// all LED ON
-	// write in shared memory
-	
+	// write in shared memory	
 }
 
 void io_get(void){
@@ -153,7 +152,7 @@ unsigned char in_switch(void){
 	suc_erase = 0;
 
 
-	if (mode == 0 && switch_buf[1] && switch_buf[2]){
+	if (flags->mode == 0 && switch_buf[1] && switch_buf[2]){
 		// key or value reset
 		// LED ->  only #1 ON
 		input_start = 0;
@@ -163,14 +162,14 @@ unsigned char in_switch(void){
 		memset(switch_suc, -1, sizeof(switch_suc));
 		return 0;
 	}
-	else if (mode == 0 && switch_buf[4] && switch_buf[5]){
+	else if (flags->mode == 0 && switch_buf[4] && switch_buf[5]){
 		// english <-> number toggle
 		switch_eng_num = 1 - switch_eng_num;
 		// switch_suc clear
 		memset(switch_suc, -1, sizeof(switch_suc));
 		return 0;
 	}
-	else if (mode == 0 && switch_buf[7] && switch_buf[8]){
+	else if (flags->mode == 0 && switch_buf[7] && switch_buf[8]){
 		// lcd clear
 		all_erase = 1;
 		// switch_suc clear
@@ -207,18 +206,18 @@ void in_reset(){
 	int retval = read(dev_fds[0], &dip_buf, 1);
 	if (dip_buf == 0){
 		// put_mode
-		if (mode == 0){
+		if (flags->mode == 0){
 			input_start = 0;
 			put_mode = 1 - put_mode;
 			fprintf(stderr, "put mode:%d\n0 is key\n1 is value\n", put_mode);
 			// PUT : toggle key-value
 		}
-		else if (mode == 1){
+		else if (flags->mode == 1){
 			input_start = 0;
 			io_get();
 			// GET : request GET
 		}
-		else if (mode == 2){
+		else if (flags->mode == 2){
 			input_start = 0;
 			io_merge();
 			// Merge : request MERGE
@@ -237,13 +236,13 @@ void in_event(){
 		// VOL+ key
 		if (ev[0].code == 115){
 			input_start = 0;
-			mode = (mode+1) % 3;
+			flags->mode = (flags->mode+1) % 3;
 			fprintf(stderr, "mode:%d\n", mode);
 		}
 		// VOL- Key
 		else if (ev[0].code == 114){
 			input_start = 0;
-			mode = (mode-1) % 3;
+			flags->mode = (flags->mode-1) % 3;
 			fprintf(stderr, "mode:%d\n", mode);
 		}
 		// BACK key
@@ -258,14 +257,14 @@ void in_event(){
 void out_lcd(unsigned char ch){
 	int len = strlen(lcd_string);
 	// merge mode : no usage
-	if (mode == 2){
+	if (flags->mode == 2){
 		return;
 	}
-	else if (mode == 1){
+	else if (flags->mode == 1){
 		// later
 		return;
 	}
-	else if (mode == 0){
+	else if (flags->mode == 0){
 		if (!put_mode) return;
 		if (put_mode && all_erase){
 			memset(lcd_string, 0, sizeof(lcd_string));
@@ -291,7 +290,7 @@ void out_lcd(unsigned char ch){
 
 void out_led(){
 	// merge mode : no usage
-	if (mode == 2){
+	if (flags->mode == 2){
 		return;
 	}
 
@@ -304,7 +303,7 @@ void out_led(){
 		return;
 	}
 	// put mode and inserting something
-	else if (mode == 0){
+	else if (flags->mode == 0){
 		// inserting key : LED 3&4 alternately blink
 		if (put_mode == 0){
 			led_low_high = 1 - led_low_high;
@@ -317,7 +316,7 @@ void out_led(){
 		}
 	}
 	// get mode and inserting something
-	else if (mode == 1){
+	else if (flags->mode == 1){
 		led_low_high = 1 - led_low_high;
 		led_status = 1 << (4+led_low_high);
 	}
@@ -339,11 +338,11 @@ void out_led(){
 
 void out_fnd(unsigned char ch){
 	// merge mode : no usage
-	if (mode == 2) {
+	if (flags->mode == 2) {
 		return;
 	}
 	// put mode
-	if (mode == 0) {
+	if (flags->mode == 0) {
 		if (put_mode == 1){
 			return;
 		}
@@ -368,8 +367,8 @@ void out_fnd(unsigned char ch){
 }
 
 void out_motor(){
-	if (mode == 2){
-		if (merge_request){
+	if (flags->mode == 2){
+		if (flags->request == 2){
 			// motor ON
 		}
 	}
@@ -377,6 +376,8 @@ void out_motor(){
 }
 
 void io(){
+	flags = (SHM_FLAGS *)shmat(shm_flags_id, (SHM_FLAGS*)NULL, 0);
+
 	int open_ret;
 	open_ret = open_devices();
 	if (open_ret < 0){
@@ -384,12 +385,13 @@ void io(){
 		return;
 	}
 	
-	(void)signal(SIGINT, user_signal1);
+	//(void)signal(SIGINT, user_signal1);
 	
 	time_cnt = 0;
 	memset(lcd_string, 0, sizeof(lcd_string));
 	memset(switch_suc, -1, sizeof(switch_suc));
 	memset(fnd_status, 0, sizeof(fnd_status));
+
 	while(!quit){
 		usleep(250000);
 		time_cnt++;
@@ -404,8 +406,7 @@ void io(){
 		out_motor();
 	}
 
-	int close_ret = close_devices();
-	if (close_ret < 0){
+	if (close_devices() < 0){
 		printf("close error");
 		return;
 	}

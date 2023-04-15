@@ -13,6 +13,8 @@
 #include<string.h>
 #include<linux/input.h>
 #include<sys/mman.h>
+#include<dirent.h>
+
 
 #define DIP_SWITCH "/dev/fpga_dip_switch"
 #define FND_MAX_DIGIT 4
@@ -41,10 +43,36 @@
 #define NUM_LCD 5
 #define NUM_KEY_EVENT 6
 
-int mode;
-int put_request;
-int get_request;
-int merge_request;
+#define SHM_KEY_FLAGS (key_t) 0x40
+// define SHM_KEY_DATA (key_t) 0x40
+// define SHM_KEY_REQUEST (key_t) 0x50
+// define SHM_KEY_MODE (key_t) 0x60
+// define SHM_KEY_ST (key_t) 0x70
+#define SEMA_KEY (key_t) 0x80
+
+// mode - shared memory
+// put 0 get 1 merge 2
+int* mode;
+// number of storage table elements.
+// merges when 3
+int* st_num;
+// quit status : exit when 1 
+int* quit;
+
+typedef struct {
+	int mode;
+	int st_num;
+	int quit;
+	int request;
+} SHM_FLAGS;
+
+SHM_FLAGS *flags;
+int shm_flags_id;
+int shm_mode_id;
+int shm_st_num_id;
+int shm_exit_id;
+
+int sem_id;
 
 void io();
 void merge();
