@@ -44,35 +44,49 @@
 #define NUM_KEY_EVENT 6
 
 #define SHM_KEY_FLAGS (key_t) 0x40
-// define SHM_KEY_DATA (key_t) 0x40
-// define SHM_KEY_REQUEST (key_t) 0x50
-// define SHM_KEY_MODE (key_t) 0x60
-// define SHM_KEY_ST (key_t) 0x70
-#define SEMA_KEY (key_t) 0x80
+#define SHM_KEY_DATA (key_t) 0x90
+
+#define SEMA_KEY (key_t) 0x30
 
 // mode - shared memory
 // put 0 get 1 merge 2
-int* mode;
+//int* mode;
 // number of storage table elements.
 // merges when 3
-int* st_num;
+//int* st_num;
 // quit status : exit when 1 
-int* quit;
+//int* quit;
 
 typedef struct {
 	int mode;
 	int st_num;
+	int st[3];
 	int quit;
 	int request;
+	int response;
 } SHM_FLAGS;
 
-SHM_FLAGS *flags;
+typedef struct {
+	int order;
+	int keynum;
+	unsigned char value[32];
+} SHM_DATA;
+
+
 int shm_flags_id;
-int shm_mode_id;
-int shm_st_num_id;
-int shm_exit_id;
+int shm_data_id;
 
 int sem_id;
 
 void io();
 void merge();
+
+union semun {
+	int val;
+	struct semid_ds *buf;
+	unsigned short *array;
+	struct seminfo *__buf;
+};
+
+struct sembuf p[2];
+struct sembuf v[2];

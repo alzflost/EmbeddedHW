@@ -11,6 +11,9 @@ ST_TABLE* st1_table[50];
 ST_TABLE* st2_table[50];
 ST_TABLE* merge_table[50];
 
+// SHM_FLAGS* flags;
+// SHM_DATA* data;
+
 FILE* fp_st1;
 FILE* fp_st2;
 
@@ -24,6 +27,7 @@ int num_elems_merged;
 int first_st, second_st;
 // filename of new storage table
 int new_st;
+
 
 int find_file(){
 	int files[3];
@@ -45,6 +49,12 @@ int find_file(){
 		printf("there are not enough tables to merge!");
 		return -1;
 	}
+	else if (file_cnt <= 2){
+		first_st = files[0];
+		second_st = files[1];
+		new_st = files[2]+1;
+		return 1;
+	}
 	// sort by descending order
 	if (files[1] > files[2]){
 		int temp = files[2];
@@ -64,7 +74,9 @@ int find_file(){
 	first_st = files[0];
 	second_st = files[1];
 	new_st = files[2]+1;
+	return 1;
 }
+
 
 // find least recent two storage table
 void st_open(void){
@@ -172,7 +184,7 @@ void merge_sort(){
 	num_elems_merged = merged_idx;
 }
 
-void delete_old(){
+void delete_old(SHM_FLAGS* flags){
 	// remove old files
 	char filename[10];
 	sprintf(filename, "%d.st", first_st);
@@ -181,11 +193,15 @@ void delete_old(){
 	int status = remove(filename);
 	if (status != 0){
 		printf("file delete error : %d.st", first_st);
+		return;
 	}
+	flags->st_num--;
 	status = remove(filename2);
 	if (status != 0){
 		printf("file delete error : %d.st", second_st);
+		return;
 	}
+	flags->st_num--;
 }
 
 void make_new_st(){
@@ -200,34 +216,41 @@ void make_new_st(){
 			fprintf(fd_new, "%d %d %s", order_cnt++, merge_table[i]->key, merge_table[i]->value);
 		}
 	}
+
+	int fd_meta = fopen("metadata", "w");
+	fprintf("%d %d %d", new_st, new_st, second_st);
 }
 
 void merge(){
 	// shared memory attach
-	mode = (int *)shmat(shm_mode_id, (int*)NULL, 0);
-        quit = (int *)shmat(shm_exit_id, (int*)NULL, 0);
-        st_num = (int *)shmat(shm_st_num_id, (int*)NULL, 0);
 	
-
-	while(!quit){
+	SHM_FLAGS* flags = (SHM_FLAGS *)shmat(shm_flags_id, (char*)NULL, 0);
+        SHM_DATA* data = (SHM_DATA *)shmat(shm_data_id, (char*)NULL, 0);
+	usleep(1000000);
+	flags->quit = 0;
+	while(!flags->quit){
+		usleep(80000);
 		// merge request received from I/O
-		if (flags->request == 3 || flags->st_num == 2){
+		//fprintf(stderr, "merge");
+		semop(sem_id, &p[0], 1);
+		if (flags->request == 3 || flags->st_num == 3){
 			if (find_file() == -1) {
 				flags->request = 0;
 				continue;
 			}
 			st_open();
 			merge_sort();
-			delete_old();
+			delete_old(flags);
 			make_new_st();
 			flags->request = 0;
 		}
+		semop(sem_id, &v[0], 1);
+		usleep(80000);
 	}
 
 	// shared memory detach
-	shmdt((char*)mode);
-	shmdt((char*)exit);
-	shmdt((char*)st_num);
+	shmdt((char*)flags);
+	shmdt((char*)data);
 	
 	return;
 }

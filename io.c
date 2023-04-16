@@ -21,6 +21,8 @@ unsigned char switch_keyboard[9][3] = {
 };
 unsigned char switch_num[9] = {'1','2','3','4','5','6','7','8','9'};
 
+//SHM_FLAGS* flags;
+//SHM_DATA* data;
 
 // 1 if user is inserting something.
 int input_start = 0;
@@ -121,23 +123,49 @@ int close_devices(void){
 	return 0;
 }
 
-void io_put(void){
-	// all LED ON
-	// write in shared memory	
+void io_put(SHM_FLAGS* flags, SHM_DATA* data){
+	// TODO : all LED ON
+	
+	// write in shared memory
+	int sum = fnd_status[0];
+	// calculate key
+	for (int i=1; i<4; i++){
+		sum *= 10;
+		sum += fnd_status[i];
+	}
+	data->keynum = sum;
+	//fprintf(stderr, "here?\n");
+	//printf("heeere!\n");
+	strncpy(data->value, lcd_string, sizeof(lcd_string));
+	//fprintf(stderr, "%d key %s value put send\n", data->keynum, data->value);
+	flags->request = 1;
+	fprintf(stderr, "%d request send", flags->request);
 }
 
-void io_get(void){
+void io_get(SHM_FLAGS* flags, SHM_DATA* data){
 	// all LED ON
 	// write in shared memory
+	int sum = fnd_status[0];
+	for (int i=1; i<4; i++){
+		sum *= 10;
+		sum += fnd_status[i];
+	}
+	// printf("here???");
+	data->keynum = sum;
+	fprintf(stderr, "%d get\n", data->keynum);
+	flags->request = 2;
+	fprintf(stderr, "%d request send\n", flags->request);
 }
 
-void io_merge(void){
+void io_merge(SHM_FLAGS* flags){
 	// write in shared memory
+	flags->request = 3;
+	fprintf(stderr, "%d request send\n", flags->request);
 }
 
 
 // switch button handler
-unsigned char in_switch(void){
+unsigned char in_switch(SHM_FLAGS* flags, SHM_DATA* data){
 	unsigned char switch_buf[MAX_BUTTON];
 	int buf_size = sizeof(switch_buf);
 	memset(switch_buf, 0, sizeof(switch_buf));
@@ -175,7 +203,8 @@ unsigned char in_switch(void){
 		// switch_suc clear
 		memset(switch_suc, -1, sizeof(switch_suc));
 		// save : request PUT to main
-		io_put();
+		fprintf(stderr, "put pressed\n");
+		io_put(flags, data);
 		return 0;
 	}
 	
@@ -201,7 +230,7 @@ unsigned char in_switch(void){
 	return 0;
 }
 
-void in_reset(){
+void in_reset(SHM_FLAGS* flags, SHM_DATA* data){
 	unsigned char dip_buf;
 	int retval = read(dev_fds[0], &dip_buf, 1);
 	if (dip_buf == 0){
@@ -214,12 +243,16 @@ void in_reset(){
 		}
 		else if (flags->mode == 1){
 			input_start = 0;
-			io_get();
+			fprintf(stderr,"GET pressed");
+			io_get(flags, data);
 			// GET : request GET
 		}
 		else if (flags->mode == 2){
 			input_start = 0;
-			io_merge();
+			fprintf(stderr,"MERGE pressed");
+			flags->request = 3;
+			fprintf(stderr, "%d\n", flags->request);
+			io_merge(flags);
 			// Merge : request MERGE
 		}
 	}
@@ -229,32 +262,36 @@ void in_reset(){
 	
 }
 
-void in_event(){
+void in_event(SHM_FLAGS* flags){
 	int rd = read(dev_fds[6], ev, size * EVENT_BUF_SIZE);
-	int value = ev[0].value;
-	if (ev[0].type == 1 && ev[0].value == 1){
+	//int value = ev[0].value;
+	
+	if (rd > 0 && ev[0].value == KEY_PRESS){
 		// VOL+ key
 		if (ev[0].code == 115){
 			input_start = 0;
 			flags->mode = (flags->mode+1) % 3;
-			fprintf(stderr, "mode:%d\n", mode);
+			fprintf(stderr, "mode:%d\n", flags->mode);
 		}
 		// VOL- Key
 		else if (ev[0].code == 114){
 			input_start = 0;
 			flags->mode = (flags->mode-1) % 3;
-			fprintf(stderr, "mode:%d\n", mode);
+			fprintf(stderr, "mode:%d\n", flags->mode);
 		}
 		// BACK key
 		else if (ev[0].code == 158){
 			input_start = 0;
-			exit(-1);
+			flags->quit = 1;
+		}
+		else {
+			flags->mode = flags->mode;
 		}
 	}
 	return;
 }
 
-void out_lcd(unsigned char ch){
+void out_lcd(unsigned char ch, SHM_FLAGS* flags){
 	int len = strlen(lcd_string);
 	// merge mode : no usage
 	if (flags->mode == 2){
@@ -288,7 +325,7 @@ void out_lcd(unsigned char ch){
 	return;
 }
 
-void out_led(){
+void out_led(SHM_FLAGS* flags){
 	// merge mode : no usage
 	if (flags->mode == 2){
 		return;
@@ -336,7 +373,7 @@ void out_led(){
 	return;
 }
 
-void out_fnd(unsigned char ch){
+void out_fnd(unsigned char ch, SHM_FLAGS* flags){
 	// merge mode : no usage
 	if (flags->mode == 2) {
 		return;
@@ -366,7 +403,7 @@ void out_fnd(unsigned char ch){
 	return;
 }
 
-void out_motor(){
+void out_motor(SHM_FLAGS* flags){
 	if (flags->mode == 2){
 		if (flags->request == 2){
 			// motor ON
@@ -375,9 +412,24 @@ void out_motor(){
 	return;
 }
 
-void io(){
-	flags = (SHM_FLAGS *)shmat(shm_flags_id, (SHM_FLAGS*)NULL, 0);
+void out_lcd_result(SHM_FLAGS* flags, SHM_DATA* data){
+	unsigned char str[32];
+	sprintf(str, "(%d, %d, %s)", data->order, data->keynum, data->value);
+	
+	int retval = write(dev_fds[5], str, 32);
+        if (retval < 0){
+                fprintf(stderr, "err lcd write");
+        }
 
+	flags->response = 0;	
+}
+
+void io(){
+	SHM_FLAGS* flags = (SHM_FLAGS *)shmat(shm_flags_id, (char *)NULL, 0);
+	SHM_DATA* data = (SHM_DATA *)shmat(shm_data_id, (char *)NULL, 0);
+	if (flags == NULL || data == NULL){
+		fprintf(stderr, "err!!");
+	}
 	int open_ret;
 	open_ret = open_devices();
 	if (open_ret < 0){
@@ -391,19 +443,33 @@ void io(){
 	memset(lcd_string, 0, sizeof(lcd_string));
 	memset(switch_suc, -1, sizeof(switch_suc));
 	memset(fnd_status, 0, sizeof(fnd_status));
-
-	while(!quit){
-		usleep(250000);
+	flags->quit = 0;
+	while(!flags->quit){
+		// fprintf(stderr,"t");
+		usleep(125000);
+		semop(sem_id, &p[0], 1);
+		//semop(sem_id, &p[1], 1);
 		time_cnt++;
 		unsigned char ch = 0;
-		ch = in_switch();
-		in_reset();
-		in_event();
+		ch = in_switch(flags, data);
+		in_reset(flags, data);
+		in_event(flags);
 		
-		out_led();
-		out_fnd(ch);
-		out_lcd(ch);
-		out_motor();
+		out_led(flags);
+		out_fnd(ch, flags);
+		out_lcd(ch, flags);
+		out_motor(flags);
+		//fprintf(stderr, "here");
+		if (flags->response == 1){
+			out_lcd_result(flags, data);
+		}
+
+		//if (flags->request == 1) io_put();
+		//if (flags->request == 2) io_get();
+		//if (flags->request == 3) io_merge();
+		//semop(sem_id, &v[1], 1);
+		semop(sem_id, &v[0], 1);
+		usleep(125000);
 	}
 
 	if (close_devices() < 0){
