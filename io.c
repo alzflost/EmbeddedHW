@@ -180,7 +180,7 @@ unsigned char in_switch(SHM_FLAGS* flags, SHM_DATA* data){
 	suc_erase = 0;
 
 
-	if (flags->mode == 0 && switch_buf[1] && switch_buf[2]){
+	if (switch_buf[1] && switch_buf[2]){
 		// key or value reset
 		// LED ->  only #1 ON
 		input_start = 0;
@@ -245,6 +245,7 @@ void in_reset(SHM_FLAGS* flags, SHM_DATA* data){
 			input_start = 0;
 			fprintf(stderr,"GET pressed");
 			io_get(flags, data);
+			all_erase = 1;
 			// GET : request GET
 		}
 		else if (flags->mode == 2){
@@ -271,17 +272,27 @@ void in_event(SHM_FLAGS* flags){
 		if (ev[0].code == 115){
 			input_start = 0;
 			flags->mode = (flags->mode+1) % 3;
+			fnd_cur = 0;
+			all_erase = 1;
 			fprintf(stderr, "mode:%d\n", flags->mode);
 		}
 		// VOL- Key
 		else if (ev[0].code == 114){
 			input_start = 0;
-			flags->mode = (flags->mode-1) % 3;
+			if (flags->mode == 0) {
+				flags->mode = 2;
+			}
+			else {
+				flags->mode = flags->mode-1;
+			}
+			fnd_cur = 0;
+			all_erase = 1;
 			fprintf(stderr, "mode:%d\n", flags->mode);
 		}
 		// BACK key
 		else if (ev[0].code == 158){
 			input_start = 0;
+			all_erase = 1;
 			flags->quit = 1;
 		}
 		else {
@@ -299,6 +310,12 @@ void out_lcd(unsigned char ch, SHM_FLAGS* flags){
 	}
 	else if (flags->mode == 1){
 		// later
+		if (all_erase){
+			memset(lcd_string, 0, sizeof(lcd_string));
+                        write(dev_fds[5], lcd_string, 32);
+                        all_erase = 0;
+                        return;
+		}
 		return;
 	}
 	else if (flags->mode == 0){
@@ -379,12 +396,24 @@ void out_fnd(unsigned char ch, SHM_FLAGS* flags){
 		return;
 	}
 	// put mode
-	if (flags->mode == 0) {
+	else if (flags->mode == 0) {
 		if (put_mode == 1){
 			return;
 		}
 		// inserting key and pressed reset
 		else if (put_mode == 0 && all_erase){
+			memset(fnd_status, 0, sizeof(fnd_status));
+			fnd_cur = 0;
+			write(dev_fds[1], fnd_status, 4);
+			all_erase = 0;
+			return;
+		}
+	}
+	// get mode
+	else {
+		// erase flag on : set to 0
+		// ex: changing mode, pushed switch 1&2..
+		if (all_erase){
 			memset(fnd_status, 0, sizeof(fnd_status));
 			fnd_cur = 0;
 			write(dev_fds[1], fnd_status, 4);
@@ -405,7 +434,7 @@ void out_fnd(unsigned char ch, SHM_FLAGS* flags){
 
 void out_motor(SHM_FLAGS* flags){
 	if (flags->mode == 2){
-		if (flags->request == 2){
+		if (flags->response == 1){
 			// motor ON
 		}
 	}
@@ -414,14 +443,18 @@ void out_motor(SHM_FLAGS* flags){
 
 void out_lcd_result(SHM_FLAGS* flags, SHM_DATA* data){
 	unsigned char str[32];
-	sprintf(str, "(%d, %d, %s)", data->order, data->keynum, data->value);
-	
+	memset(str, 0, sizeof(str));
+	if (flags->response != -1){
+		sprintf(str, "(%d, %d, %s)", data->order, data->keynum, data->value);
+	}
+	else {
+		sprintf(str, "ERROR");
+	}
 	int retval = write(dev_fds[5], str, 32);
         if (retval < 0){
                 fprintf(stderr, "err lcd write");
         }
-
-	flags->response = 0;	
+	flags->response = 0;
 }
 
 void io(){
@@ -448,7 +481,7 @@ void io(){
 		// fprintf(stderr,"t");
 		usleep(125000);
 		semop(sem_id, &p[0], 1);
-		//semop(sem_id, &p[1], 1);
+		semop(sem_id, &p[1], 1);
 		time_cnt++;
 		unsigned char ch = 0;
 		ch = in_switch(flags, data);
@@ -459,15 +492,10 @@ void io(){
 		out_fnd(ch, flags);
 		out_lcd(ch, flags);
 		out_motor(flags);
-		//fprintf(stderr, "here");
-		if (flags->response == 1){
+		if (flags->response != 0){
 			out_lcd_result(flags, data);
 		}
-
-		//if (flags->request == 1) io_put();
-		//if (flags->request == 2) io_get();
-		//if (flags->request == 3) io_merge();
-		//semop(sem_id, &v[1], 1);
+		semop(sem_id, &v[1], 1);
 		semop(sem_id, &v[0], 1);
 		usleep(125000);
 	}
@@ -476,5 +504,9 @@ void io(){
 		printf("close error");
 		return;
 	}
+
+	shmdt((char*)flags);
+	shmdt((char*)data);
+
 	return;
 }
