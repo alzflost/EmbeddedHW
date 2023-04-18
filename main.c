@@ -52,6 +52,7 @@ void save_st_table(SHM_FLAGS* flags){
 void save_metadata(SHM_FLAGS* flags){
 	if (flags->st_num == 3){
 		// last merge
+
 	}
 	FILE* fp_meta = fopen("metadata", "w");
 	fprintf(fp_meta, "%d %d\n", flags->st_num, cur_order);
@@ -91,6 +92,7 @@ int get(SHM_FLAGS* flags, SHM_DATA* data){
 	int target_key = data->keynum;
 	//fprintf(stderr, "keynum %d", data->keynum);
 	data->order = 0;
+	flags->response = -1;
 	memset(data->value, 0, sizeof(data->value));
 	for (int i=mtable.entry - 1; i>=0; i--){
 		// same key
@@ -123,8 +125,7 @@ int get(SHM_FLAGS* flags, SHM_DATA* data){
 			while ((fscanf(fp_search, "%d %d %s", &order, &key, (char*)value)) != EOF){
 				// we need to search descending order of (generated) order
 				// so temporarily save data from storage table
-				fprintf(stderr, "here");
-				fprintf(stderr, "%d %d %s", order, key, (char*)value);
+				
 				tmp[tmp_idx] = (Record *)malloc(sizeof(Record));
 				tmp[tmp_idx]->order = order;
 				tmp[tmp_idx]->key = key;
@@ -134,7 +135,7 @@ int get(SHM_FLAGS* flags, SHM_DATA* data){
 			}
 		}
 		fclose(fp_search);
-		fprintf(stderr, "search complete");
+		//fprintf(stderr, "search complete");
 		// search descending order of tmp table
 		for (int j=tmp_idx-1; j>=0; j--){
 			if (tmp[j]->key == target_key){
@@ -142,6 +143,7 @@ int get(SHM_FLAGS* flags, SHM_DATA* data){
 				strncpy(data->value, tmp[j]->value, sizeof(tmp[j]->value));
 				data->value[sizeof(tmp[j]->value)] = '\0';
 				flags->response = 1;
+				flags->request = 0;
 				return 1;
 			}
 		}
@@ -155,6 +157,7 @@ void main_process(void){
 	SHM_FLAGS* flags = (SHM_FLAGS *)shmat(shm_flags_id, (char*)NULL, 0);
 	SHM_DATA* data = (SHM_DATA *)shmat(shm_data_id, (char*)NULL, 0);
 
+	// flags init
 	cur_order = 1;
 	flags->mode = 0;
 	for (int i=0; i<3; i++){
@@ -163,6 +166,9 @@ void main_process(void){
 	flags->st_num = 0;
 	flags->quit = 0;
 	flags->request = 0;
+
+	// metadata open (if exists)
+	// get data of number of storage table, current order of creation
 	FILE* fp_meta;
 	if ((fp_meta = fopen("metadata", "r"))!= NULL){
 		fscanf(fp_meta, "%d %d", &flags->st_num, &cur_order);
@@ -171,29 +177,30 @@ void main_process(void){
 		}
 		fclose(fp_meta);
 	}
+	if (flags->st_num >= 3){
+		flags->request = 3;
+	}
 
-	fprintf(stderr, "flags init");
-	//data->key = 0;
-	//data->order = 0;
-	// fprintf(stderr, "data init");	
+	//fprintf(stderr, "flags init");	
 
 	mtable.entry = 0;
 	for (int i=0; i<3; i++){
 		mtable.r[i] = (Record *)malloc(sizeof(Record));
 	}
-
+	// when quit == 1 : exit loop and end program
 	flags->quit = 0;
 	while(!flags->quit){
-		// semaphore P
 		usleep(50000);
+		// get semaphore p0
 		semop(sem_id, &p[0], 1);
 		// PUT request received
 		if (flags->mode == 0 && flags->request == 1){
 			if (mtable.entry == 3){
-				// flush if mtable has 3 elements and need to put new one
+				// flush if mtable has 3 elements
 				save_st_table(flags);
 				clear_mem_table();
 			}
+			// put is after flush(if needed)
 	 		put(flags, data);
 			// if three storage table exists, request merge
 			if (flags->st_num == 3) {
@@ -208,11 +215,11 @@ void main_process(void){
 		if (flags->mode == 1 && flags->request == 2){
 			// get request
 			int res = get(flags, data);
-			// flag init
-			if (res) {
+			// response flag init
+			if (res == 1) { // GET SUCCESS
 				flags->response = 1;
 			}
-			else {
+			else if (res == -1) { // GET FAIL
 				flags->response = -1;
 			}
 			flags->request = 0;	
@@ -221,6 +228,7 @@ void main_process(void){
 		semop(sem_id, &v[0], 1);
 		usleep(50000);
 	}
+	// save the storage table and metadata before exit
 	save_st_table(flags);
 	save_metadata(flags);
 }
@@ -235,7 +243,8 @@ int main(void){
 	if (shm_flags_id == -1){
 		printf("shared memory create error");
 	}
-
+	
+	// create semaphore (2)
 	sem_id = semget(SEMA_KEY, 2, IPC_CREAT);
 	if (sem_id == -1){
 		printf("semaphore create error");
@@ -243,7 +252,8 @@ int main(void){
 
 	union semun op;
 	op.val = 1;
-
+	// initialize semaphore
+	// one is for main-io, another is for io-merge
 	for (int i=0; i<2; i++){
 		int res = semctl(sem_id, i, SETVAL, op);
 		if (res == -1){

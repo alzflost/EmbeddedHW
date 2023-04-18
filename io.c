@@ -44,8 +44,9 @@ int led_status = 0;
 int led_low_high = 0;
 unsigned char fnd_status[4];
 
-// time cnt for motor ON
-int motor_time_cnt;
+// flag for motor ON
+int motor_started;
+unsigned char motor_state[3];
 
 struct input_event ev[EVENT_BUF_SIZE];
 int size = sizeof(struct input_event);
@@ -252,7 +253,7 @@ void in_reset(SHM_FLAGS* flags, SHM_DATA* data){
 			input_start = 0;
 			fprintf(stderr,"MERGE pressed");
 			flags->request = 3;
-			fprintf(stderr, "%d\n", flags->request);
+			//fprintf(stderr, "%d\n", flags->request);
 			io_merge(flags);
 			// Merge : request MERGE
 		}
@@ -353,13 +354,16 @@ void out_led(SHM_FLAGS* flags){
 
 	// not exact second (ex 3.75sec, 5.5sec) or not inserting anything yet
 	// no need for update : return
-	if ((time_cnt&3) || !input_start){
+	if ((time_cnt&3)){
 		return;
 	}
 	// put mode and inserting something
 	else if (flags->mode == 0){
+		if (!input_start) {
+			led_status = 1 << 7;
+		}
 		// inserting key : LED 3&4 alternately blink
-		if (put_mode == 0){
+		else if (put_mode == 0){
 			led_low_high = 1 - led_low_high;
 			led_status = 1 << (4+led_low_high);
 		}
@@ -371,8 +375,13 @@ void out_led(SHM_FLAGS* flags){
 	}
 	// get mode and inserting something
 	else if (flags->mode == 1){
-		led_low_high = 1 - led_low_high;
-		led_status = 1 << (4+led_low_high);
+		if (!input_start){
+			led_status = 1 << 7;
+		}
+		else {
+			led_low_high = 1 - led_low_high;
+			led_status = 1 << (4+led_low_high);
+		}
 	}
 
 	// mmap
@@ -433,9 +442,22 @@ void out_fnd(unsigned char ch, SHM_FLAGS* flags){
 }
 
 void out_motor(SHM_FLAGS* flags){
+	
 	if (flags->mode == 2){
 		if (flags->response == 1){
-			// motor ON
+			if (time_cnt & 4){
+				if (motor_started){
+					motor_state[0] = 0;
+					flags->response = 0;
+					motor_started = 0;
+				}
+				else {
+					motor_state[0] = 1;
+					motor_started = 1;
+				}
+				motor_state[1] = 1;
+				motor_state[2] = 50;
+			}
 		}
 	}
 	return;
@@ -444,17 +466,36 @@ void out_motor(SHM_FLAGS* flags){
 void out_lcd_result(SHM_FLAGS* flags, SHM_DATA* data){
 	unsigned char str[32];
 	memset(str, 0, sizeof(str));
-	if (flags->response != -1){
+	if (flags->response == 1){
 		sprintf(str, "(%d, %d, %s)", data->order, data->keynum, data->value);
 	}
 	else {
-		sprintf(str, "ERROR");
+		strcpy((char*)str, "ERROR");
 	}
 	int retval = write(dev_fds[5], str, 32);
         if (retval < 0){
                 fprintf(stderr, "err lcd write");
         }
 	flags->response = 0;
+}
+
+void led_all_light(void){
+	unsigned long *fpga_addr = 0;
+        unsigned char *led_addr = 0;
+
+	fpga_addr = (unsigned long *)mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_SHARED, dev_fds[2], FPGA_BASE_ADDRESS);
+        if (fpga_addr == MAP_FAILED){
+                printf("mmap error!");
+                close(dev_fds[2]);
+                exit(1);
+        }
+
+        led_addr=(unsigned char*)((void *)fpga_addr+LED_ADDR);
+        *led_addr = 255;
+	input_start = 0;
+
+        munmap(led_addr, 4096);
+
 }
 
 void io(){
@@ -476,6 +517,7 @@ void io(){
 	memset(lcd_string, 0, sizeof(lcd_string));
 	memset(switch_suc, -1, sizeof(switch_suc));
 	memset(fnd_status, 0, sizeof(fnd_status));
+	memset(motor_state, 0, sizeof(motor_state));
 	flags->quit = 0;
 	while(!flags->quit){
 		// fprintf(stderr,"t");
@@ -493,6 +535,9 @@ void io(){
 		out_lcd(ch, flags);
 		out_motor(flags);
 		if (flags->response != 0){
+			if (flags->response == 1){
+				led_all_light();
+			}
 			out_lcd_result(flags, data);
 		}
 		semop(sem_id, &v[1], 1);

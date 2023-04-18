@@ -11,97 +11,20 @@ ST_TABLE* st1_table[50];
 ST_TABLE* st2_table[50];
 ST_TABLE* merge_table[50];
 
+// file pointer for read for two storage table for merge
 FILE* fp_st1;
 FILE* fp_st2;
 
-// number of elements of storage tables
+// number of elements of each storage tables
 int num_elems_st1;
 int num_elems_st2;
 int num_elems_merged;
 
-// filename of two open storage table
-// needed for delete after merge
-//int first_st, second_st;
-// filename of new storage table
-//int new_st;
-
-/*
-int find_file(){
-	int files[3];
-	int file_cnt;
-	DIR *dir;
-	struct dirent *ent;
-	dir = opendir(".");
-	if (dir != NULL){
-		while ((ent = readdir(dir)) != NULL){
-			char* dot = strrchr(ent->d_name, '.');
-			if (dot && !strcmp(dot, ".st")) {
-				char* fname = strtok(ent->d_name, ".");
-				files[file_cnt++] = atoi(fname);
-				if (file_cnt >= 3) break;
-			}
-		}
-	}
-	if (file_cnt <= 1){
-		printf("there are not enough tables to merge!");
-		return -1;
-	}
-	else if (file_cnt <= 2){
-		first_st = files[0];
-		second_st = files[1];
-		new_st = files[2]+1;
-		return 1;
-	}
-	// sort by descending order
-	if (files[1] > files[2]){
-		int temp = files[2];
-		files[2] = files[1];
-		files[1] = temp;
-	}
-	if (files[0] > files[1]){
-		int temp = files[1];
-		files[1] = files[0];
-		files[0] = temp;
-	}
-	if (files[1] > files[2]){
-		int temp = files[2];
-		files[2] = files[1];
-		files[1] = temp;
-	}
-	first_st = files[0];
-	second_st = files[1];
-	new_st = files[2]+1;
-	return 1;
-}
-*/
+int minorder;
 
 // find least recent two storage table
 void st_open(SHM_FLAGS* flags){
 	// find first storage table to open
-	/*
-	char filename[10] = '\0';
-	while (i++){
-		memset(filename, 0, sizeof(filename));
-		sprintf(filename, "%d.st", i);
-		// open first storage file (least recent one)
-		if ((fp_st1 = fopen(filename, 'r')) != NULL) {
-			first_st = i
-			break;
-		}
-		fclose(fp_st1);
-	}
-	// find second storage table to open
-	while (i++){
-		memset(filename, 0, sizeof(filename));
-		sprintf(filename, "%d.st", i);
-		// open second storage file
-		if ((fp_st2 = fopen(filename, 'r')) != NULL) {
-			second_st = i
-			break;
-		}
-		fclose(fp_st2);
-	}
-	*/
 	int first_st = 0;
 	int second_st = 0;
 
@@ -134,6 +57,8 @@ void st_open(SHM_FLAGS* flags){
 		st1_table[i] = (ST_TABLE*)malloc(sizeof(ST_TABLE));
 		st2_table[i] = (ST_TABLE*)malloc(sizeof(ST_TABLE));
 	}
+
+
 	while ((read_elems = fscanf(fp_st1, "%d %d %s", &elem_order, &elem_key, (char*)elem_value)) != EOF){
 		// load each element of first storage table
 		fprintf(stderr, "k");
@@ -145,7 +70,9 @@ void st_open(SHM_FLAGS* flags){
 	}
 	fprintf(stderr, "quit here\n");
 	st1_table[cur_idx]->key = -1;
+	minorder = st1_table[0]->order;
 	num_elems_st1 = cur_idx;
+	
 	cur_idx = 0;
 	while ((read_elems = fscanf(fp_st2, "%d %d %s", &elem_order, &elem_key, (char*)elem_value)) != EOF){
                 // load each element of second storage table
@@ -154,9 +81,12 @@ void st_open(SHM_FLAGS* flags){
                 st2_table[cur_idx]->key = elem_key;
                 strncpy(st2_table[cur_idx++]->value, elem_value, sizeof(elem_value));
         }
-	fprintf(stderr, "loop exit");
 	st2_table[cur_idx]->key = -1;
 	num_elems_st2 = cur_idx;
+	// find out min value of order
+	// need for saving merged table again
+	minorder = (minorder < st2_table[0]->order) ? minorder : st2_table[0]->order;
+
 	fclose(fp_st1);
 	fclose(fp_st2);
 	fprintf(stderr, "merge save\n");
@@ -168,6 +98,7 @@ void self_sort(){
 	for (idx = 0; idx < num_elems_st1-1; idx++){
 		swap = 0;
 		for (int j=0; j < num_elems_st1 - idx - 1; j++){
+			// bigger key goes to back
 			if (st1_table[j]->key > st1_table[j+1]->key){
 				ST_TABLE* tmp = st1_table[j];
 				st1_table[j] = st1_table[j+1];
@@ -175,10 +106,12 @@ void self_sort(){
 				swap = 1;
 			}
 		}
+		// no swap : everything is in order
 		if (!swap){
 			break;
 		}
 	}
+	//same for stable 2
 	swap = 0;
 	for (idx = 0; idx < num_elems_st2-1; idx++){
                 swap = 0;
@@ -231,14 +164,7 @@ void merge_sort(){
 	while (st2_idx < num_elems_st2){
 		merge_table[merged_idx++] = st2_table[st2_idx++];
 	}
-	/*
-	int valid_elem = 1;
-	for (int i=1; i<merged_idx; i++){
-		if (merge_st[i].key != merge_st[i-1].key){
-			valid_elem++;
-		}
-	}
-	*/
+
 	num_elems_merged = merged_idx;
 }
 
@@ -282,11 +208,11 @@ void make_new_st(SHM_FLAGS* flags){
 	sprintf(filename, "%d.st", new_st);
 	FILE* fp_new = fopen(filename, "w");
 	
-	int order_cnt = merge_table[0]->order;
-	fprintf(fp_new, "%d %d %s", order_cnt++, merge_table[0]->key, merge_table[0]->value);
+	//int order_cnt = merge_table[0]->order;
+	fprintf(fp_new, "%d %d %s\n", minorder++, merge_table[0]->key, (char*)merge_table[0]->value);
 	for (int i=1; i<num_elems_merged; i++) {
 		if (merge_table[i]->key != merge_table[i-1]->key) {
-			fprintf(fp_new, "%d %d %s\n", order_cnt++, merge_table[i]->key, merge_table[i]->value);
+			fprintf(fp_new, "%d %d %s\n", minorder++, merge_table[i]->key, (char*)merge_table[i]->value);
 		}
 	}
 	// storage table info init
@@ -309,16 +235,19 @@ void merge(){
 		usleep(80000);
 		semop(sem_id, &p[0], 1);
 		// merge request received from io or st_num becomes 3 (auto merge)
-		if (flags->request == 3 || flags->st_num == 3){
+		if (flags->request == 3 || flags->st_num >= 3){
 			if (flags->st_num < 2) {
 				fprintf(stderr, "not enough storage tables to merge\n");
 				flags->request = 0;
+				flags->response = 0;
+				semop(sem_id, &v[0], 1);
 				continue;
 			}
 			st_open(flags);
 			merge_sort();
 			delete_old(flags);
 			make_new_st(flags);
+			flags->response = 1;
 			flags->request = 0;
 		}
 		semop(sem_id, &v[0], 1);
