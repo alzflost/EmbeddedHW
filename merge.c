@@ -105,6 +105,12 @@ void self_sort(){
 				st1_table[j+1] = tmp;
 				swap = 1;
 			}
+			else if ((st1_table[j]->key == st1_table[j+1]->key) && (st1_table[j]->order < st1_table[j+1]->order)){
+                                ST_TABLE* tmp = st1_table[j];
+                                st1_table[j] = st1_table[j+1];
+                                st1_table[j+1] = tmp;
+                                swap = 1;
+                        }
 		}
 		// no swap : everything is in order
 		if (!swap){
@@ -122,6 +128,12 @@ void self_sort(){
                                 st2_table[j+1] = tmp;
                                 swap = 1;
                         }
+			else if ((st2_table[j]->key == st2_table[j+1]->key) && (st2_table[j]->order < st2_table[j+1]->order)){
+				ST_TABLE* tmp = st2_table[j];
+				st2_table[j] = st2_table[j+1];
+				st2_table[j+1] = tmp;
+				swap = 1;
+			}
                 }
                 if (!swap){
                         break;
